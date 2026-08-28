@@ -17,7 +17,8 @@ por confianza → la interfaz las muestra con barras de confianza.
 | Backend | Node.js 22 · TypeScript 5 · Express 4 · Zod · Pino — **arquitectura hexagonal** |
 | Frontend | React 18 · Vite 6 · TypeScript 5 |
 | IA | [Imagga](https://imagga.com/) — adaptador intercambiable, con modo demo sin credenciales |
-| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **57 tests** |
+| Secretos | AWS Secrets Manager fuera de desarrollo local |
+| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **81 tests** |
 | Infraestructura | Docker multi-stage · docker-compose · nginx |
 
 ---
@@ -36,6 +37,7 @@ Abre **http://localhost:8080** y listo.
 Para usar la IA real, crea un archivo `.env` en la raíz del proyecto:
 
 ```env
+APP_ENV=local
 ANNOTATOR=imagga
 IMAGGA_API_KEY=tu_api_key
 IMAGGA_API_SECRET=tu_api_secret
@@ -77,21 +79,51 @@ Se configuran en `backend/.env` (copiar desde `backend/.env.example`).
 
 | Variable | Descripción | Valor por defecto |
 |---|---|---|
+| `APP_ENV` | Entorno de ejecución: `local`, `dev`, `qa`, `staging`, `prod`. Determina de dónde salen las credenciales | `local` |
 | `PORT` | Puerto del API | `3000` |
 | `MAX_IMAGE_MB` | Tamaño máximo de imagen aceptado | `5` |
 | `ANNOTATOR` | Proveedor de IA: `imagga` o `fake` (demo sin credenciales) | `fake` |
-| `IMAGGA_API_KEY` | API key de Imagga — **obligatoria** si `ANNOTATOR=imagga` | — |
-| `IMAGGA_API_SECRET` | API secret de Imagga — **obligatoria** si `ANNOTATOR=imagga` | — |
+| `IMAGGA_BASE_URL` | Endpoint del proveedor | `https://api.imagga.com/v2` |
 | `IMAGGA_TIMEOUT_MS` | Timeout de la llamada al proveedor | `30000` |
+| `IMAGGA_API_KEY` | API key — **solo si `APP_ENV=local`** | — |
+| `IMAGGA_API_SECRET` | API secret — **solo si `APP_ENV=local`** | — |
+| `IMAGGA_SECRET_ID` | Nombre o ARN del secreto en AWS Secrets Manager — **si `APP_ENV` no es `local`** | — |
+| `AWS_REGION` | Región de AWS. Opcional: el SDK la resuelve del entorno de ejecución | — |
 
 Las credenciales gratuitas se obtienen en <https://imagga.com/auth/signup>
 (plan free, sin tarjeta).
 
-Dos decisiones deliberadas sobre configuración:
+### De dónde salen las credenciales
+
+El origen depende de `APP_ENV`, no del código:
+
+- **`APP_ENV=local`** → se leen de las variables de entorno (`backend/.env`, que
+  nunca se commitea). Es lo cómodo para desarrollar.
+- **Cualquier otro valor** → se resuelven desde **AWS Secrets Manager**, leyendo
+  el secreto que indica `IMAGGA_SECRET_ID`. Así ningún credencial viaja en la
+  imagen de Docker, en el repositorio ni en una variable de entorno del
+  despliegue.
+
+El secreto debe contener un JSON con esta forma exacta:
+
+```json
+{
+  "IMAGGA_API_KEY": "acc_xxxxxxxxxxxxxxx",
+  "IMAGGA_API_SECRET": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+Se valida al leerlo: si falta alguna clave, el proceso no arranca. En AWS, el
+rol de ejecución necesita permiso `secretsmanager:GetSecretValue` sobre ese
+secreto.
+
+Tres decisiones deliberadas sobre configuración:
 
 - **La configuración se valida al arrancar.** Si seleccionas `ANNOTATOR=imagga`
-  sin credenciales, el proceso se niega a iniciar con un mensaje explícito, en
-  lugar de fallar más tarde en la primera petición.
+  sin lo necesario para el `APP_ENV` en curso, el proceso se niega a iniciar con
+  un mensaje explícito, en lugar de fallar más tarde en la primera petición.
+- **Las credenciales se resuelven antes de escuchar peticiones**, así un
+  despliegue mal configurado falla en el arranque y no atiende tráfico roto.
 - **El timeout por defecto es de 30 s** porque Imagga abandona el procesamiento
   alrededor de los 15 s en su plan gratuito; un plazo más corto ocultaría su
   mensaje de error real detrás de un timeout ciego nuestro.
@@ -143,7 +175,7 @@ Healthcheck: `{ "status": "ok" }`.
 ## Tests
 
 ```bash
-cd backend  && npm test    # 48 tests: unitarios + integración con supertest
+cd backend  && npm test    # 72 tests: unitarios + integración con supertest
 cd frontend && npm test    #  9 tests: componentes con Testing Library
 ```
 
@@ -162,12 +194,13 @@ dependencia apunta siempre hacia adentro: `infrastructure → application → do
             │ driving                              ▲ driven
             ▼                                      │
 ┌──────────────────────────────────────────────────────────┐
-│  infrastructure     http/ · providers/ · config/         │
+│  infrastructure     http/ · providers/ · config/secrets/ │
 │  ┌────────────────────────────────────────────────────┐  │
 │  │  application     AnalyzeImageUseCase               │  │
 │  │  ┌──────────────────────────────────────────────┐  │  │
 │  │  │  domain    Tag · ImageAnalysis               │  │  │
-│  │  │            puerto ImageAnnotator             │  │  │
+│  │  │            puertos ImageAnnotator            │  │  │
+│  │  │                  y CredentialsProvider       │  │  │
 │  │  │            detectImageFormat (magic bytes)   │  │  │
 │  │  │            errores tipados                   │  │  │
 │  │  └──────────────────────────────────────────────┘  │  │
@@ -180,6 +213,12 @@ La pieza clave es el puerto **`ImageAnnotator`**: Imagga es solo un adaptador
 proveedor de IA — Google Vision, OpenAI — significa escribir otro adaptador y
 seleccionarlo en el *composition root*; el dominio, el caso de uso y la capa HTTP
 no se tocan.
+
+El mismo principio se aplica al origen de las credenciales: `CredentialsProvider`
+es otro puerto del dominio, con dos adaptadores en infraestructura —
+`EnvSecretsProvider` para desarrollo local y `AwsSecretsManagerProvider` para
+entornos desplegados. Añadir otro gestor de secretos — Vault, Parameter Store —
+sería un adaptador más, sin tocar el resto.
 
 El frontend replica la misma separación en versión ligera:
 `domain / application / infrastructure / ui`.

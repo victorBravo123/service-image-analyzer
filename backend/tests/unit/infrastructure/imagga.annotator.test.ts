@@ -12,6 +12,7 @@ const CONFIG = {
   apiKey: 'test-key',
   apiSecret: 'test-secret',
   timeoutMs: 5000,
+  baseUrl: 'https://api.imagga.com/v2',
 };
 
 function imaggaJson(tags: Array<{ confidence?: number; tag?: { en?: string } }>): Response {
@@ -71,6 +72,16 @@ describe('ImaggaAnnotator', () => {
 
     expect(tags).toHaveLength(1);
     expect(tags[0]).toMatchObject({ label: 'sun', confidence: 1 });
+  });
+
+  it('calls the endpoint it was configured with, not a hardcoded one', async () => {
+    fetchSpy.mockResolvedValue(imaggaJson([]));
+
+    await new ImaggaAnnotator({ ...CONFIG, baseUrl: 'https://sandbox.example.com/v2' }).annotate(
+      IMAGE,
+    );
+
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://sandbox.example.com/v2/tags?limit=10');
   });
 
   it('translates HTTP 429 into AnnotatorUnavailableError', async () => {

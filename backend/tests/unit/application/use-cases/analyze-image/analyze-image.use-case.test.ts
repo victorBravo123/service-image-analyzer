@@ -1,7 +1,10 @@
-import { AnalyzeImageUseCase } from '../../../src/application/analyze-image.use-case';
-import { UnsupportedImageFormatError } from '../../../src/domain/errors/unsupported-image-format.error';
-import { Tag } from '../../../src/domain/model/tag';
-import type { ImageAnnotator, ImageToAnnotate } from '../../../src/domain/ports/image-annotator';
+import { AnalyzeImageUseCase } from '../../../../../src/application/use-cases/analyze-image/analyze-image.use-case';
+import { UnsupportedImageFormatError } from '../../../../../src/domain/errors/unsupported-image-format.error';
+import { Tag } from '../../../../../src/domain/model/tag';
+import type {
+  ImageAnnotator,
+  ImageToAnnotate,
+} from '../../../../../src/domain/ports/image-annotator';
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 
@@ -27,10 +30,7 @@ describe('AnalyzeImageUseCase', () => {
   });
 
   it('returns tags ranked by descending confidence', async () => {
-    const annotator = new StubAnnotator([
-      Tag.create('Grass', 0.88),
-      Tag.create('Dog', 0.98),
-    ]);
+    const annotator = new StubAnnotator([Tag.create('Grass', 0.88), Tag.create('Dog', 0.98)]);
     const useCase = new AnalyzeImageUseCase(annotator);
 
     const analysis = await useCase.execute({ content: PNG });

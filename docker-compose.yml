@@ -2,14 +2,17 @@ services:
   backend:
     build: ./backend
     environment:
+      APP_ENV: ${APP_ENV:-local}
       PORT: 3000
       MAX_IMAGE_MB: ${MAX_IMAGE_MB:-5}
-      # Defaults to the demo annotator, so the stack runs with no setup.
-      # Set ANNOTATOR=imagga plus credentials in a root .env to use the real provider.
       ANNOTATOR: ${ANNOTATOR:-fake}
+      IMAGGA_BASE_URL: ${IMAGGA_BASE_URL:-https://api.imagga.com/v2}
+      IMAGGA_TIMEOUT_MS: ${IMAGGA_TIMEOUT_MS:-30000}
+      # Used when APP_ENV=local
       IMAGGA_API_KEY: ${IMAGGA_API_KEY:-}
       IMAGGA_API_SECRET: ${IMAGGA_API_SECRET:-}
-      IMAGGA_TIMEOUT_MS: ${IMAGGA_TIMEOUT_MS:-30000}
+      IMAGGA_SECRET_ID: ${IMAGGA_SECRET_ID:-}
+      AWS_REGION: ${AWS_REGION:-}
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
       interval: 10s

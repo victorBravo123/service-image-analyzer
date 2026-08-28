@@ -1,0 +1,108 @@
+@startuml flujo-analisis-imagen
+title FLUJO DE ANÁLISIS DE IMAGEN (POST /api/analyze)
+
+skinparam style strictuml
+skinparam BackgroundColor #FFFFFF
+skinparam BoxPadding 15
+skinparam RoundCorner 8
+
+skinparam TitleFontName "Segoe UI"
+skinparam TitleFontSize 16
+skinparam TitleFontColor #212121
+skinparam TitleFontWeight bold
+
+skinparam ActorFontName "Segoe UI"
+skinparam ActorFontSize 12
+skinparam ActorFontColor #37474F
+
+skinparam ParticipantFontName "Segoe UI"
+skinparam ParticipantFontSize 12
+skinparam ParticipantFontColor #212121
+
+skinparam ArrowFontName "Segoe UI"
+skinparam ArrowFontSize 11
+skinparam ArrowFontColor #37474F
+skinparam ArrowColor #455A64
+
+skinparam SequenceGroupBackgroundColor #FAFAFA
+skinparam SequenceGroupBorderColor #B0BEC5
+skinparam SequenceGroupHeaderFontColor #37474F
+skinparam SequenceGroupHeaderFontName "Segoe UI"
+skinparam SequenceGroupHeaderFontSize 11
+skinparam SequenceGroupHeaderFontWeight bold
+skinparam SequenceGroupHeaderBackgroundColor #ECEFF1
+
+actor "Usuario" as Usuario #ECEFF1
+
+participant "«React»\nFrontend (SPA)" as Frontend << (R,#2196F3) >> #E3F2FD
+participant "«nginx / Vite»\nProxy /api" as Proxy << (P,#FF9800) >> #FFF3E0
+participant "«Express»\nAPI /api/analyze" as API << (E,#43A047) >> #E8F5E9
+participant "«Application»\nAnalyzeImageUseCase" as UseCase << (A,#3F51B5) >> #E8EAF6
+participant "«Domain»\ndetectImageFormat" as Dominio << (D,#7CB342) >> #F1F8E9
+participant "«Adapter»\nImaggaAnnotator" as Annotator << (A,#9C27B0) >> #F3E5F5
+entity "«External»\nImagga" as Imagga << (E,#FF5722) >> #FBE9E7
+
+== Selección de la imagen ==
+Usuario -> Frontend : Elige archivo
+activate Frontend
+Frontend -> Frontend : Valida tipo y tamaño\n(feedback inmediato)
+Frontend --> Usuario : Vista previa
+
+== Envío al backend ==
+Usuario -> Frontend : Clic en "Analizar"
+Frontend -> Frontend : status = loading (spinner)
+Frontend -> Proxy : POST /api/analyze\nmultipart/form-data
+activate Proxy
+Proxy -> API : proxy_pass backend:3000
+activate API
+API -> API : multer en memoria\n(máx. 5 MB, 1 archivo)
+
+== Validación de contenido ==
+API -> UseCase : execute({ content })
+activate UseCase
+UseCase -> Dominio : detectImageFormat(content)
+activate Dominio
+Dominio --> UseCase : formato o null
+deactivate Dominio
+
+alt No es una imagen (magic bytes)
+    UseCase --> API : UnsupportedImageFormatError
+    API --> Proxy : 415 UNSUPPORTED_MEDIA_TYPE
+else Formato soportado
+    == Análisis con el proveedor de IA ==
+    UseCase -> Annotator : annotate({ content, format })
+    activate Annotator
+    Annotator -> Imagga : POST /v2/tags\nBasic auth, timeout 30s
+    activate Imagga
+
+    alt Respuesta correcta
+        Imagga --> Annotator : tags con confidence 0-100
+        deactivate Imagga
+        Annotator --> UseCase : Tag[] normalizados a [0,1]
+        deactivate Annotator
+        UseCase -> UseCase : Ordena por confianza desc.
+        UseCase --> API : ImageAnalysis
+        API --> Proxy : 200 { tags: [...] }
+    else Rate limit del proveedor
+        Annotator --> API : AnnotatorUnavailableError
+        API --> Proxy : 503 SERVICE_UNAVAILABLE
+    else Error o timeout
+        Annotator --> API : AnalysisFailedError
+        API --> Proxy : 502 ANALYSIS_FAILED
+    end
+end
+deactivate UseCase
+deactivate API
+
+== Respuesta ==
+Proxy --> Frontend : Respuesta HTTP
+deactivate Proxy
+
+alt Éxito
+    Frontend --> Usuario : Lista de tags con barras de confianza
+else Error
+    Frontend --> Usuario : Mensaje accionable según el code
+end
+deactivate Frontend
+
+@enduml

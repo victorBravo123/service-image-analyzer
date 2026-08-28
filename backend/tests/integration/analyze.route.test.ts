@@ -1,7 +1,7 @@
 ﻿import request from 'supertest';
 import { pino } from 'pino';
 import { buildApp } from '../../src/infrastructure/http/server';
-import { AnalyzeImageUseCase } from '../../src/application/analyze-image.use-case';
+import { AnalyzeImageUseCase } from '../../src/application/use-cases/analyze-image/analyze-image.use-case';
 import { Tag } from '../../src/domain/model/tag';
 import { AnalysisFailedError } from '../../src/domain/errors/analysis-failed.error';
 import { AnnotatorUnavailableError } from '../../src/domain/errors/annotator-unavailable.error';
