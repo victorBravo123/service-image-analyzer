@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      PORT: 3000
+      MAX_IMAGE_MB: ${MAX_IMAGE_MB:-5}
+      ANNOTATOR: ${ANNOTATOR:-fake}
+      IMAGGA_BASE_URL: ${IMAGGA_BASE_URL:-https://api.imagga.com/v2}
+      IMAGGA_TIMEOUT_MS: ${IMAGGA_TIMEOUT_MS:-30000}
+      # Used when APP_ENV=local
+      IMAGGA_API_KEY: ${IMAGGA_API_KEY:-}
+      IMAGGA_API_SECRET: ${IMAGGA_API_SECRET:-}
+      IMAGGA_SECRET_ID: ${IMAGGA_SECRET_ID:-}
+      AWS_REGION: ${AWS_REGION:-}
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    ports:
+      - '8080:80'
+    depends_on:
+      backend:
+        condition: service_healthy
