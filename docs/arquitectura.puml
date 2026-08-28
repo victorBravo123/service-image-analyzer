@@ -1,0 +1,89 @@
+@startuml arquitectura-analizador-imagenes
+title ARQUITECTURA - ANALIZADOR INTELIGENTE DE CONTENIDO DE IMÁGENES
+
+' Styling settings
+skinparam BackgroundColor #FFFFFF
+skinparam ArrowColor #455A64
+skinparam RoundCorner 8
+skinparam DefaultFontName "Segoe UI"
+skinparam DefaultFontSize 12
+
+' Color palette for nodes
+skinparam rectangle {
+    BackgroundColor #F8F9FA
+    BorderColor #B0BEC5
+    FontColor #212121
+}
+
+skinparam interface {
+    BackgroundColor #F3E5F5
+    BorderColor #8E24AA
+    FontColor #212121
+}
+
+skinparam cloud {
+    BackgroundColor #FBE9E7
+    BorderColor #FF5722
+    FontColor #212121
+}
+
+skinparam actor {
+    BackgroundColor #ECEFF1
+    BorderColor #607D8B
+    FontColor #212121
+}
+
+' Definition of nodes
+actor "Usuario" as actor_usuario
+
+' Frontend
+rectangle "Frontend\n(React + Vite)" as frontend
+rectangle "nginx / dev-server\n(proxy /api)" as proxy
+
+' Backend - entrada HTTP
+rectangle "API Express\nPOST /api/analyze" as api
+rectangle "Multer\n(memoria, máx. 5 MB)" as multer
+rectangle "Error Handler\n(error -> HTTP)" as error_handler
+
+' Backend - nucleo
+rectangle "main.ts\n(composition root)" as main
+rectangle "AnalyzeImageUseCase" as use_case
+rectangle "Dominio\n(magic bytes, Tag,\nImageAnalysis)" as dominio
+
+' Puerto de IA y sus adaptadores
+interface "ImageAnnotator\n(puerto)" as port_annotator
+rectangle "ImaggaAnnotator" as adapter_imagga
+rectangle "FakeAnnotator\n(modo demo)" as adapter_fake
+cloud "Imagga\n(Externo)" as imagga_ext
+
+' Puerto de credenciales y sus adaptadores
+interface "CredentialsProvider\n(puerto)" as port_creds
+rectangle "EnvSecretsProvider\n(APP_ENV=local)" as adapter_env
+rectangle "AwsSecretsManagerProvider\n(otros entornos)" as adapter_aws
+cloud "AWS Secrets Manager\n(Externo)" as aws_ext
+
+' Connections
+actor_usuario --> frontend
+frontend --> proxy : multipart/form-data
+proxy --> api
+
+api --> multer : recibe el archivo
+multer --> use_case : execute({ content })
+api --> error_handler : errores -> 400/413/415/502/503
+
+use_case --> dominio : valida formato y ordena tags
+use_case --> port_annotator : annotate()
+
+' Adaptadores del puerto de IA
+port_annotator <|.. adapter_imagga
+port_annotator <|.. adapter_fake
+adapter_imagga --> imagga_ext : HTTPS (Basic auth)
+
+' Composition root: cablea adaptadores y resuelve credenciales al arrancar
+main --> port_annotator : selecciona adaptador (ANNOTATOR)
+main --> port_creds : resuelve credenciales al arrancar
+port_creds <|.. adapter_env
+port_creds <|.. adapter_aws
+adapter_aws --> aws_ext : GetSecretValue
+
+@enduml
