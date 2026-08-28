@@ -1,22 +1,16 @@
 import express from 'express';
 import { pinoHttp } from 'pino-http';
-import type { Logger } from 'pino';
-import type { AnalyzeImageUseCase } from '../../application/analyze-image.use-case';
 import { analyzeRouter } from './routes/analyze.route';
 import { errorHandler } from './middleware/error-handler';
+import type { ServerDependencies } from './dto/server-dependencies';
 
-export interface ServerDependencies {
-  analyzeImage: AnalyzeImageUseCase;
-  maxImageBytes: number;
-  logger: Logger;
-}
+export type { ServerDependencies };
 
-/**
- * App factory: receives fully-built dependencies so tests can inject stubs
- * and the composition root (main.ts) stays the only place that knows about
- * concrete adapters.
- */
-export function buildApp({ analyzeImage, maxImageBytes, logger }: ServerDependencies): express.Express {
+export function buildApp({
+  analyzeImage,
+  maxImageBytes,
+  logger,
+}: ServerDependencies): express.Express {
   const app = express();
 
   app.disable('x-powered-by');

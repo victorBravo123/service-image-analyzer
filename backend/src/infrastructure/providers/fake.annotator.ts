@@ -1,10 +1,6 @@
 import type { ImageAnnotator, ImageToAnnotate } from '../../domain/ports/image-annotator';
 import { Tag } from '../../domain/model/tag';
 
-/**
- * Deterministic annotator used in tests and in demo mode (ANNOTATOR=fake),
- * so the whole application can be run and evaluated without an Imagga key.
- */
 export class FakeAnnotator implements ImageAnnotator {
   annotate(image: ImageToAnnotate): Promise<Tag[]> {
     return Promise.resolve([

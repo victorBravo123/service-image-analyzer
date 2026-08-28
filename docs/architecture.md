@@ -23,9 +23,9 @@ dominio importa Express, `fetch` ni ninguna librería externa.
 
 | Capa | Contenido | Regla |
 |---|---|---|
-| `domain` | `Tag`, `ImageAnalysis`, `detectImageFormat`, puerto `ImageAnnotator`, errores tipados | Cero dependencias externas; las invariantes viven en los constructores |
+| `domain` | `Tag`, `ImageAnalysis`, `AnnotatorCredentials`, `detectImageFormat`, puertos `ImageAnnotator` y `CredentialsProvider`, errores tipados | Cero dependencias externas; las invariantes viven en los constructores |
 | `application` | `AnalyzeImageUseCase` | Orquesta: valida formato → llama al puerto → ordena el resultado |
-| `infrastructure` | `http/` (rutas, multer, error handler), `providers/` (Imagga, fake, factory), `config/` (env con Zod) | Adaptadores que implementan o consumen los puertos |
+| `infrastructure` | `http/` (rutas, multer, error handler), `providers/` (Imagga, fake, factory), `config/` (env con Zod) y `config/secrets/` (adaptadores de `CredentialsProvider`) | Adaptadores que implementan o consumen los puertos |
 | `main.ts` | Composition root | Único archivo que conoce todos los adaptadores concretos |
 
 ### Por qué así
@@ -59,6 +59,47 @@ constructor, lo que además hace trivial el testing con dobles.
 
 **`fetch` nativo con `AbortSignal.timeout`.** Node ≥ 18 no necesita un cliente
 HTTP de terceros: una dependencia menos que auditar y actualizar.
+
+**Nada de endpoints ni credenciales en el código.** El endpoint del proveedor se
+inyecta desde `IMAGGA_BASE_URL`, de modo que apuntar a un sandbox o a un mock en
+un entorno de pruebas es cambiar una variable, no recompilar. El adaptador ya no
+conoce ninguna URL por defecto: la recibe siempre por constructor, y un test lo
+verifica precisamente para que nadie vuelva a fijarla en el código.
+
+**El origen de las credenciales también es un puerto.** `CredentialsProvider`
+vive en `domain/ports/`, como todo puerto, y se define en lenguaje neutro:
+devuelve `AnnotatorCredentials`, sin nombrar a ningún proveedor. Sus dos
+adaptadores están en infraestructura — `EnvSecretsProvider`, que lee las
+variables de entorno mientras se desarrolla en local, y
+`AwsSecretsManagerProvider`, que resuelve el secreto en AWS Secrets Manager en
+cualquier entorno desplegado. La decisión la toma `APP_ENV`, no el código.
+
+Lo que **no** cruza hacia el dominio es lo específico de cada adaptador: la
+configuración de AWS (`AwsSecretsManagerConfig`), los nombres de variables de
+entorno (`EnvCredentialsSource`) y el esquema Zod que valida el payload del
+secreto. Llevarlos al núcleo obligaría al dominio a conocer AWS y a depender de
+Zod, que es justo el acoplamiento que la arquitectura hexagonal evita.
+
+**Los tipos viven en archivos propios**, no declarados dentro de las clases que
+los usan: `dto/` para las formas de datos que cruzan una frontera y `ports/`
+para los contratos. Así un contrato se lee sin abrir la implementación, y
+cambiarlo no obliga a tocar la clase.
+
+Tres detalles que importan en producción:
+
+- El secreto se **valida** con el mismo rigor que la configuración (Zod), en vez
+  de confiar en que tenga la forma esperada; si le falta una clave, el proceso
+  no arranca.
+- Se lee **una sola vez** y se cachea durante la vida del proceso: pedirlo en
+  cada petición añadiría latencia y coste sin ganar nada.
+- Los errores de AWS se envuelven citando **qué secreto** falló y por qué
+  (`AccessDeniedException`, por ejemplo), que es la información que hace falta a
+  las 3 de la mañana.
+
+**Las credenciales se resuelven antes de escuchar peticiones.** El arranque es
+asíncrono a propósito: si el secreto no existe o el rol no tiene permisos, el
+proceso muere en el boot y el orquestador lo reporta, en lugar de aceptar
+tráfico que fallaría en cada subida.
 
 **Timeout de 30 s hacia el proveedor.** Medido contra la API real: Imagga
 abandona alrededor de los 15 s en el plan gratuito. Un timeout más corto del lado
@@ -99,7 +140,7 @@ memoria.
 
 ## Testing
 
-**57 tests** distribuidos según el valor que aportan, no para alcanzar un
+**81 tests** distribuidos según el valor que aportan, no para alcanzar un
 porcentaje:
 
 - **Dominio y aplicación (unitarios):** invariantes de `Tag`, ordenamiento de
@@ -111,6 +152,10 @@ porcentaje:
   `401 → 502`, timeout y fallo de red.
 - **Integración (supertest):** la app real con el anotador inyectado, cubriendo
   el contrato completo de errores HTTP.
+- **Configuración y secretos (unitarios):** las reglas de arranque por entorno
+  (qué exige `APP_ENV=local` frente a un entorno desplegado) y ambos adaptadores
+  de `SecretsProvider`, incluyendo secreto inexistente, JSON inválido, forma
+  incorrecta, error de AWS y que la lectura se cachea.
 - **Frontend (Testing Library):** el flujo tal como lo vive el usuario — botón
   deshabilitado hasta seleccionar, spinner durante la petición, tags renderizados
   con su porcentaje, fallo del proveedor, backend inalcanzable y resultado vacío.

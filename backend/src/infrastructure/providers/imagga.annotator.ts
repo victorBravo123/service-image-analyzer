@@ -2,32 +2,11 @@ import { Tag } from '../../domain/model/tag';
 import { AnalysisFailedError } from '../../domain/errors/analysis-failed.error';
 import { AnnotatorUnavailableError } from '../../domain/errors/annotator-unavailable.error';
 import type { ImageAnnotator, ImageToAnnotate } from '../../domain/ports/image-annotator';
+import type { ImaggaConfig } from './dto/imagga.config';
+import type { ImaggaTagsResponse } from './dto/imagga-tags.response';
 
-export interface ImaggaConfig {
-  readonly apiKey: string;
-  readonly apiSecret: string;
-  readonly timeoutMs: number;
-  /** Overridable for tests; defaults to the public Imagga API. */
-  readonly baseUrl?: string;
-  readonly maxTags?: number;
-}
-
-interface ImaggaTagsResponse {
-  result?: {
-    tags?: Array<{ confidence?: number; tag?: { en?: string } }>;
-  };
-}
-
-const DEFAULT_BASE_URL = 'https://api.imagga.com/v2';
 const DEFAULT_MAX_TAGS = 10;
 
-/**
- * Driven adapter for the Imagga tagging API. Everything Imagga-specific
- * lives here: authentication, multipart upload, confidence normalization
- * (Imagga reports 0-100, the domain expects 0-1) and translation of
- * provider failures into domain errors. Swapping providers means writing
- * another class like this one — nothing else changes.
- */
 export class ImaggaAnnotator implements ImageAnnotator {
   constructor(private readonly config: ImaggaConfig) {}
 
@@ -46,7 +25,6 @@ export class ImaggaAnnotator implements ImageAnnotator {
   }
 
   private async requestTags(image: ImageToAnnotate): Promise<Response> {
-    const baseUrl = this.config.baseUrl ?? DEFAULT_BASE_URL;
     const maxTags = this.config.maxTags ?? DEFAULT_MAX_TAGS;
 
     const body = new FormData();
@@ -54,7 +32,7 @@ export class ImaggaAnnotator implements ImageAnnotator {
     body.append('image', blob, `upload.${image.format}`);
 
     try {
-      return await fetch(`${baseUrl}/tags?limit=${maxTags}`, {
+      return await fetch(`${this.config.baseUrl}/tags?limit=${maxTags}`, {
         method: 'POST',
         headers: { Authorization: this.authorizationHeader() },
         body,
@@ -62,9 +40,7 @@ export class ImaggaAnnotator implements ImageAnnotator {
       });
     } catch (error) {
       if (isTimeout(error)) {
-        throw new AnalysisFailedError(
-          `provider did not respond within ${this.config.timeoutMs}ms`,
-        );
+        throw new AnalysisFailedError(`provider did not respond within ${this.config.timeoutMs}ms`);
       }
       throw new AnalysisFailedError('could not reach the image analysis provider');
     }

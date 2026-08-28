@@ -2,32 +2,49 @@ import { z } from 'zod';
 
 const envSchema = z
   .object({
+    /** Where the process runs. Only "local" reads credentials from the environment. */
+    APP_ENV: z.enum(['local', 'dev', 'qa', 'staging', 'prod']).default('local'),
     PORT: z.coerce.number().int().positive().default(3000),
     MAX_IMAGE_MB: z.coerce.number().positive().default(5),
     ANNOTATOR: z.enum(['imagga', 'fake']).default('fake'),
+    IMAGGA_BASE_URL: z.string().trim().url().default('https://api.imagga.com/v2'),
+    IMAGGA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+    // Credentials for APP_ENV=local only.
     IMAGGA_API_KEY: z.string().trim().optional(),
     IMAGGA_API_SECRET: z.string().trim().optional(),
-    // Imagga's own processing deadline is around 15s on the free tier, so a
-    // shorter client timeout would hide their error message behind ours.
-    IMAGGA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+    // Credentials for every other environment, resolved from AWS Secrets Manager.
+    IMAGGA_SECRET_ID: z.string().trim().optional(),
+    AWS_REGION: z.string().trim().optional(),
   })
   .superRefine((env, ctx) => {
-    if (env.ANNOTATOR === 'imagga' && (!env.IMAGGA_API_KEY || !env.IMAGGA_API_SECRET)) {
+    if (env.ANNOTATOR !== 'imagga') {
+      return;
+    }
+    if (env.APP_ENV === 'local') {
+      if (!env.IMAGGA_API_KEY || !env.IMAGGA_API_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'IMAGGA_API_KEY and IMAGGA_API_SECRET are required when ANNOTATOR=imagga and ' +
+            'APP_ENV=local. Use ANNOTATOR=fake to run without credentials.',
+        });
+      }
+      return;
+    }
+    if (!env.IMAGGA_SECRET_ID) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'IMAGGA_API_KEY and IMAGGA_API_SECRET are required when ANNOTATOR=imagga. ' +
-          'Use ANNOTATOR=fake to run without credentials.',
+          `IMAGGA_SECRET_ID is required when ANNOTATOR=imagga and APP_ENV=${env.APP_ENV}: ` +
+          'credentials are read from AWS Secrets Manager outside local development.',
       });
     }
   });
 
 export type Env = z.infer<typeof envSchema>;
 
-/**
- * Fail-fast configuration: the process refuses to boot with an invalid or
- * incomplete environment instead of failing later on the first request.
- */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const result = envSchema.safeParse(source);
   if (!result.success) {
