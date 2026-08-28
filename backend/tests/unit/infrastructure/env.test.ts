@@ -2,7 +2,7 @@ import { loadEnv, maxImageBytes } from '../../../src/infrastructure/config/env';
 
 describe('loadEnv', () => {
   it('applies safe defaults for an empty environment', () => {
-    expect(loadEnv({})).toEqual({ PORT: 3000, MAX_IMAGE_MB: 5 });
+    expect(loadEnv({})).toMatchObject({ PORT: 3000, MAX_IMAGE_MB: 5, ANNOTATOR: 'fake' });
   });
 
   it('parses numeric values from strings', () => {
@@ -14,5 +14,23 @@ describe('loadEnv', () => {
 
   it('rejects a non-numeric port instead of booting with a broken config', () => {
     expect(() => loadEnv({ PORT: 'not-a-port' })).toThrow(/Invalid environment/);
+  });
+
+  it('requires Imagga credentials when the real annotator is selected', () => {
+    expect(() => loadEnv({ ANNOTATOR: 'imagga' })).toThrow(/IMAGGA_API_KEY/);
+  });
+
+  it('accepts the imagga annotator once credentials are present', () => {
+    const env = loadEnv({
+      ANNOTATOR: 'imagga',
+      IMAGGA_API_KEY: 'key',
+      IMAGGA_API_SECRET: 'secret',
+    });
+
+    expect(env.ANNOTATOR).toBe('imagga');
+  });
+
+  it('rejects an unknown annotator', () => {
+    expect(() => loadEnv({ ANNOTATOR: 'skynet' })).toThrow(/Invalid environment/);
   });
 });

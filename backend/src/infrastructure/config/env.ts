@@ -1,15 +1,32 @@
 import { z } from 'zod';
 
-const envSchema = z.object({
-  PORT: z.coerce.number().int().positive().default(3000),
-  MAX_IMAGE_MB: z.coerce.number().positive().default(5),
-});
+const envSchema = z
+  .object({
+    PORT: z.coerce.number().int().positive().default(3000),
+    MAX_IMAGE_MB: z.coerce.number().positive().default(5),
+    ANNOTATOR: z.enum(['imagga', 'fake']).default('fake'),
+    IMAGGA_API_KEY: z.string().trim().optional(),
+    IMAGGA_API_SECRET: z.string().trim().optional(),
+    // Imagga's own processing deadline is around 15s on the free tier, so a
+    // shorter client timeout would hide their error message behind ours.
+    IMAGGA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  })
+  .superRefine((env, ctx) => {
+    if (env.ANNOTATOR === 'imagga' && (!env.IMAGGA_API_KEY || !env.IMAGGA_API_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'IMAGGA_API_KEY and IMAGGA_API_SECRET are required when ANNOTATOR=imagga. ' +
+          'Use ANNOTATOR=fake to run without credentials.',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 
 /**
- * Fail-fast configuration: the process refuses to boot with an invalid
- * environment instead of failing later on the first request.
+ * Fail-fast configuration: the process refuses to boot with an invalid or
+ * incomplete environment instead of failing later on the first request.
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const result = envSchema.safeParse(source);
