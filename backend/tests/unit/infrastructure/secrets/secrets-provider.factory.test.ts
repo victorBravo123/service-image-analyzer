@@ -1,7 +1,7 @@
 import { createSecretsProvider } from '../../../../src/infrastructure/config/secrets/secrets-provider.factory';
 import { EnvSecretsProvider } from '../../../../src/infrastructure/config/secrets/env-secrets.provider';
 import { AwsSecretsManagerProvider } from '../../../../src/infrastructure/config/secrets/aws-secrets-manager.provider';
-import { loadEnv } from '../../../../src/infrastructure/config/env';
+import { loadEnv } from '../../../../src/infrastructure/config/envs/env';
 
 describe('createSecretsProvider', () => {
   it('reads credentials from the environment while developing locally', () => {

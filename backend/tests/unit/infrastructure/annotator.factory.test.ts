@@ -1,12 +1,13 @@
 import { createAnnotator } from '../../../src/infrastructure/providers/annotator.factory';
 import { FakeAnnotator } from '../../../src/infrastructure/providers/fake.annotator';
 import { ImaggaAnnotator } from '../../../src/infrastructure/providers/imagga.annotator';
-import { loadEnv } from '../../../src/infrastructure/config/env';
+import { loadEnv } from '../../../src/infrastructure/config/envs/env';
+import { createSecretsProvider } from '../../../src/infrastructure/config/secrets/secrets-provider.factory';
 import type { CredentialsProvider } from '../../../src/domain/ports/credentials-provider';
 
-const secrets: CredentialsProvider = {
+const secrets = (): CredentialsProvider => ({
   getAnnotatorCredentials: () => Promise.resolve({ apiKey: 'key', apiSecret: 'secret' }),
-};
+});
 
 describe('createAnnotator', () => {
   it('returns the fake annotator by default (demo mode without credentials)', async () => {
@@ -26,15 +27,15 @@ describe('createAnnotator', () => {
   it('does not touch the secrets provider when the fake annotator is used', async () => {
     const getAnnotatorCredentials = jest.fn();
 
-    await createAnnotator(loadEnv({ ANNOTATOR: 'fake' }), { getAnnotatorCredentials });
+    await createAnnotator(loadEnv({ ANNOTATOR: 'fake' }), () => ({ getAnnotatorCredentials }));
 
     expect(getAnnotatorCredentials).not.toHaveBeenCalled();
   });
 
   it('fails when credentials cannot be resolved', async () => {
-    const failing: CredentialsProvider = {
+    const failing = (): CredentialsProvider => ({
       getAnnotatorCredentials: () => Promise.reject(new Error('secret unavailable')),
-    };
+    });
     const env = loadEnv({
       ANNOTATOR: 'imagga',
       IMAGGA_API_KEY: 'key',
@@ -42,5 +43,25 @@ describe('createAnnotator', () => {
     });
 
     await expect(createAnnotator(env, failing)).rejects.toThrow(/secret unavailable/);
+  });
+
+  it('never builds the secrets provider for the fake annotator in a deployed environment', async () => {
+    // Regression: createSecretsProvider demands IMAGGA_SECRET_ID outside local
+    // development, so building it eagerly made ANNOTATOR=fake unusable there.
+    const env = loadEnv({ ANNOTATOR: 'fake', APP_ENV: 'qa' });
+
+    await expect(createAnnotator(env, () => createSecretsProvider(env))).resolves.toBeInstanceOf(
+      FakeAnnotator,
+    );
+  });
+
+  it('still demands the secret id when the deployed environment does use Imagga', async () => {
+    const env = loadEnv({ ANNOTATOR: 'imagga', APP_ENV: 'qa', IMAGGA_SECRET_ID: 'imagga/qa' });
+    const explode = () => {
+      throw new Error('should not be reached');
+    };
+
+    // The factory is invoked on this branch, so a broken one must surface.
+    await expect(createAnnotator(env, explode)).rejects.toThrow(/should not be reached/);
   });
 });

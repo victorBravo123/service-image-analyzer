@@ -18,7 +18,7 @@ por confianza → la interfaz las muestra con barras de confianza.
 | Frontend | React 18 · Vite 6 · TypeScript 5 |
 | IA | [Imagga](https://imagga.com/) — adaptador intercambiable, con modo demo sin credenciales |
 | Secretos | AWS Secrets Manager fuera de desarrollo local |
-| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **81 tests** |
+| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **94 tests** |
 | Infraestructura | Docker multi-stage · docker-compose · nginx |
 
 ---
@@ -175,7 +175,7 @@ Healthcheck: `{ "status": "ok" }`.
 ## Tests
 
 ```bash
-cd backend  && npm test    # 72 tests: unitarios + integración con supertest
+cd backend  && npm test    # 85 tests: unitarios + integración con supertest
 cd frontend && npm test    #  9 tests: componentes con Testing Library
 ```
 
@@ -245,6 +245,18 @@ Las decisiones técnicas y sus alternativas están explicadas en
   internos al cliente.
 - El frontend consume los `code`, no los mensajes, y muestra texto accionable en
   español en lugar de números de estado.
+
+**Observabilidad**
+- El logger vive detrás del puerto `Logger` del dominio; `PinoLogger` es su
+  único adaptador, así que cambiar de librería no toca ni la capa HTTP ni el
+  caso de uso.
+- Cada petición recibe un `IdTransaction` (UUID) y emite tres entradas
+  correlacionadas: `start-request`, `end-request` y, si falla, `error`.
+- Formato JSON estable — `serviceName`, `version`, `datetime`, `urlService`,
+  `action`, `event`, `method`, `responseTime`, `status`, `code`, `message` —
+  pensado para indexarse tal cual en un buscador de logs.
+- El cuerpo de la petición **nunca** se registra: aquí es una imagen binaria.
+  Los healthchecks tampoco, para no ahogar la señal útil.
 
 **Modo demo**
 - `ANNOTATOR=fake` permite evaluar la aplicación completa sin registrar ninguna
