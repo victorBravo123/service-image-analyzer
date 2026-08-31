@@ -44,7 +44,8 @@ IMAGGA_API_KEY=tu_api_key
 IMAGGA_API_SECRET=tu_api_secret
 ```
 
-y vuelve a ejecutar `docker compose up --build`.
+y vuelve a ejecutar `docker compose up --build`. El stack ya incluye un Redis
+para el circuit breaker, así que no hay que levantar nada más.
 
 ---
 
@@ -60,6 +61,27 @@ npm install
 cp .env.example .env        # en Windows: copy .env.example .env
 npm run dev
 ```
+
+Arranca en modo demo (`ANNOTATOR=fake`) sin necesitar nada más.
+
+**Para usar la IA real** hacen falta credenciales de Imagga y un Redis, donde el
+circuit breaker guarda su estado:
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+y en `backend/.env`:
+
+```env
+ANNOTATOR=imagga
+IMAGGA_API_KEY=tu_api_key
+IMAGGA_API_SECRET=tu_api_secret
+REDIS_URL=redis://127.0.0.1:6379
+```
+
+En Windows usa `127.0.0.1` y no `localhost`: este último resuelve a IPv6 y
+Docker publica el puerto en IPv4.
 
 ### Frontend — puerto 5173 (en otra terminal)
 
@@ -182,8 +204,17 @@ Healthcheck: `{ "status": "ok" }`.
 ## Tests
 
 ```bash
-cd backend  && npm test    # 108 tests (6 requieren Redis, se saltan sin él)
-cd frontend && npm test    #  9 tests: componentes con Testing Library
+cd backend  && npm test    # 102 tests unitarios y de integración
+cd frontend && npm test    #   9 tests de componentes con Testing Library
+```
+
+Otros 6 tests comprueban el store del circuit breaker contra un Redis real —lo
+que un doble no puede probar, como que `INCR` mantiene el contador exacto con
+50 fallos concurrentes—. Se saltan solos si no hay Redis:
+
+```bash
+docker run --rm -d -p 6399:6379 --name cb-redis redis:7-alpine
+REDIS_TEST_URL=redis://127.0.0.1:6399 npm test    # 108 tests
 ```
 
 Otros scripts disponibles en ambos proyectos: `npm run lint`, `npm run build` y,
