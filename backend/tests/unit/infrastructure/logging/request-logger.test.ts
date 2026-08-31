@@ -58,6 +58,34 @@ describe('requestLogger', () => {
     expect(entries[0]?.IdTransaction).not.toBe(entries[2]?.IdTransaction);
   });
 
+  it('describes an upload by size and type, never by its contents', async () => {
+    const { logger, entries } = recordingLogger();
+    const app = appWith(logger);
+    app.post('/api/upload', (_req, res) => {
+      res.status(200).json({ ok: true });
+    });
+
+    await request(app).post('/api/upload').attach('image', Buffer.alloc(2048), 'photo.png');
+
+    expect(entries[0]?.message).toMatch(/^Payload: [\d.]+ KB \(multipart\/form-data\)$/);
+  });
+
+  it('includes the query string when there is one', async () => {
+    const { logger, entries } = recordingLogger();
+
+    await request(appWith(logger)).get('/api/thing?debug=true');
+
+    expect(entries[0]?.message).toContain('Query: {"debug":"true"}');
+  });
+
+  it('says so when the request carries nothing', async () => {
+    const { logger, entries } = recordingLogger();
+
+    await request(appWith(logger)).get('/api/thing');
+
+    expect(entries[0]?.message).toBe('No request data');
+  });
+
   it('does not log health checks', async () => {
     const { logger, entries } = recordingLogger();
     await request(appWith(logger)).get('/api/health');

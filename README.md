@@ -14,12 +14,13 @@ por confianza → la interfaz las muestra con barras de confianza.
 
 | Capa | Stack |
 |---|---|
-| Backend | Node.js 22 · TypeScript 5 · Express 4 · Zod · Pino — **arquitectura hexagonal** |
+| Backend | Node.js 22 · TypeScript 5 · Express 4 · Zod · Pino · ioredis — **arquitectura hexagonal** |
 | Frontend | React 18 · Vite 6 · TypeScript 5 |
 | IA | [Imagga](https://imagga.com/) — adaptador intercambiable, con modo demo sin credenciales |
 | Secretos | AWS Secrets Manager fuera de desarrollo local |
-| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **94 tests** |
-| Infraestructura | Docker multi-stage · docker-compose · nginx |
+| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **114 tests** |
+| Resiliencia | Circuit breaker con estado compartido en Redis |
+| Infraestructura | Docker multi-stage · docker-compose · nginx · Redis |
 
 ---
 
@@ -89,6 +90,12 @@ Se configuran en `backend/.env` (copiar desde `backend/.env.example`).
 | `IMAGGA_API_SECRET` | API secret — **solo si `APP_ENV=local`** | — |
 | `IMAGGA_SECRET_ID` | Nombre o ARN del secreto en AWS Secrets Manager — **si `APP_ENV` no es `local`** | — |
 | `AWS_REGION` | Región de AWS. Opcional: el SDK la resuelve del entorno de ejecución | — |
+| `REDIS_URL` | Redis del circuit breaker. **Obligatorio si `ANNOTATOR=imagga`**. `rediss://` para TLS | — |
+| `REDIS_USERNAME` | Usuario de Redis, si el servidor lo exige (ACL) | — |
+| `REDIS_PASSWORD` | Contraseña de Redis | — |
+| `CB_FAILURE_THRESHOLD` | Fallos consecutivos que abren el circuito | `3` |
+| `CB_OPEN_MS` | Tiempo que permanece abierto antes de reintentar | `60000` |
+| `LOG_LEVEL` | Nivel de log (`fatal`…`trace`, `silent`) | `info` |
 
 Las credenciales gratuitas se obtienen en <https://imagga.com/auth/signup>
 (plan free, sin tarjeta).
@@ -175,7 +182,7 @@ Healthcheck: `{ "status": "ok" }`.
 ## Tests
 
 ```bash
-cd backend  && npm test    # 85 tests: unitarios + integración con supertest
+cd backend  && npm test    # 105 tests (6 requieren Redis, se saltan sin él)
 cd frontend && npm test    #  9 tests: componentes con Testing Library
 ```
 
@@ -245,6 +252,24 @@ Las decisiones técnicas y sus alternativas están explicadas en
   internos al cliente.
 - El frontend consume los `code`, no los mensajes, y muestra texto accionable en
   español en lugar de números de estado.
+
+**Resiliencia ante el proveedor de IA**
+- Circuit breaker como **decorador** del puerto `ImageAnnotator`: ni el caso de
+  uso ni `ImaggaAnnotator` saben que existe.
+- Tres fallos consecutivos abren el circuito. Estando abierto responde `503` en
+  milisegundos, sin retener la conexión hasta el timeout del proveedor.
+- Un éxito cierra el circuito y borra el contador; si nadie vuelve a intentarlo,
+  la clave de Redis expira sola pasado `CB_OPEN_MS`.
+- Solo `ANALYSIS_FAILED` y `SERVICE_UNAVAILABLE` cuentan. Una imagen inválida no
+  abre el circuito: si no, un usuario subiendo archivos raros tumbaría el
+  servicio para todos.
+- El estado vive en Redis y lo comparten todas las instancias. `INCR` es atómico,
+  así que el contador no se descuadra con peticiones concurrentes, y la clave
+  `:open` lleva TTL: es Redis quien mide el tiempo, no el proceso.
+- Unas credenciales rechazadas (`401`/`403`) **no** abren el circuito. Esperar no
+  arregla una API key mal puesta; el log lo dice y el operador actúa.
+- Si Redis no responde, la petición recibe `503`, no un `500` opaco. Un fallo del
+  store *después* de una llamada correcta no invalida esa respuesta.
 
 **Observabilidad**
 - El logger vive detrás del puerto `Logger` del dominio; `PinoLogger` es su

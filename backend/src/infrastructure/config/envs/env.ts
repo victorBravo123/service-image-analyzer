@@ -15,6 +15,12 @@ const envSchema = z
     IMAGGA_BASE_URL: z.string().trim().url().default('https://api.imagga.com/v2'),
     IMAGGA_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
+    REDIS_URL: z.string().trim().url().optional(),
+    REDIS_USERNAME: z.string().trim().optional(),
+    REDIS_PASSWORD: z.string().trim().optional(),
+    CB_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
+    CB_OPEN_MS: z.coerce.number().int().positive().default(60_000),
+
     // Credentials for APP_ENV=local only.
     IMAGGA_API_KEY: z.string().trim().optional(),
     IMAGGA_API_SECRET: z.string().trim().optional(),
@@ -26,6 +32,13 @@ const envSchema = z
   .superRefine((env, ctx) => {
     if (env.ANNOTATOR !== 'imagga') {
       return;
+    }
+    if (!env.REDIS_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'REDIS_URL is required when ANNOTATOR=imagga: the circuit breaker keeps its state there.',
+      });
     }
     if (env.APP_ENV === 'local') {
       const missing = LOCAL_CREDENTIAL_KEYS.filter((key) => !env[key]);

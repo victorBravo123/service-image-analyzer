@@ -1,6 +1,7 @@
 import { ImaggaAnnotator } from '../../../src/infrastructure/providers/imagga.annotator';
 import { AnalysisFailedError } from '../../../src/domain/errors/analysis-failed.error';
 import { AnnotatorUnavailableError } from '../../../src/domain/errors/annotator-unavailable.error';
+import { AnnotatorMisconfiguredError } from '../../../src/domain/errors/annotator-misconfigured.error';
 import type { ImageToAnnotate } from '../../../src/domain/ports/image-annotator';
 
 const IMAGE: ImageToAnnotate = {
@@ -93,10 +94,22 @@ describe('ImaggaAnnotator', () => {
   });
 
   it('translates other upstream errors into AnalysisFailedError', async () => {
-    fetchSpy.mockResolvedValue(new Response('bad credentials', { status: 401 }));
+    fetchSpy.mockResolvedValue(new Response('boom', { status: 500 }));
 
     await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
   });
+
+  it.each([401, 403])(
+    'translates HTTP %s into AnnotatorMisconfiguredError naming the credentials',
+    async (status) => {
+      fetchSpy.mockResolvedValue(new Response('bad credentials', { status }));
+
+      await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(
+        AnnotatorMisconfiguredError,
+      );
+      await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(/IMAGGA_API_KEY/);
+    },
+  );
 
   it('translates a timeout into AnalysisFailedError mentioning the deadline', async () => {
     const timeout = new Error('aborted');

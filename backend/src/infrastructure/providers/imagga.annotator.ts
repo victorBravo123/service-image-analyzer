@@ -1,6 +1,7 @@
 import { Tag } from '../../domain/model/tag';
 import { AnalysisFailedError } from '../../domain/errors/analysis-failed.error';
 import { AnnotatorUnavailableError } from '../../domain/errors/annotator-unavailable.error';
+import { AnnotatorMisconfiguredError } from '../../domain/errors/annotator-misconfigured.error';
 import type { ImageAnnotator, ImageToAnnotate } from '../../domain/ports/image-annotator';
 import type { ImaggaConfig } from './dto/imagga.config';
 import type { ImaggaTagsResponse } from './dto/imagga-tags.response';
@@ -15,6 +16,12 @@ export class ImaggaAnnotator implements ImageAnnotator {
 
     if (response.status === 429) {
       throw new AnnotatorUnavailableError('provider rate limit exceeded');
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new AnnotatorMisconfiguredError(
+        `provider rejected our credentials (HTTP ${String(response.status)}) — ` +
+          'check IMAGGA_API_KEY and IMAGGA_API_SECRET',
+      );
     }
     if (!response.ok) {
       throw new AnalysisFailedError(`provider responded with HTTP ${response.status}`);

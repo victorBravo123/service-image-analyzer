@@ -48,6 +48,7 @@ describe('loadEnv', () => {
     it('accepts the configuration once credentials are present', () => {
       const env = loadEnv({
         ANNOTATOR: 'imagga',
+        REDIS_URL: 'redis://localhost:6379',
         APP_ENV: 'local',
         IMAGGA_API_KEY: 'key',
         IMAGGA_API_SECRET: 'secret',
@@ -66,6 +67,7 @@ describe('loadEnv', () => {
       expect(() =>
         loadEnv({
           ANNOTATOR: 'imagga',
+          REDIS_URL: 'redis://localhost:6379',
           APP_ENV: 'prod',
           IMAGGA_API_KEY: 'key',
           IMAGGA_API_SECRET: 'secret',
@@ -76,6 +78,7 @@ describe('loadEnv', () => {
     it('accepts the configuration once the secret id is present', () => {
       const env = loadEnv({
         ANNOTATOR: 'imagga',
+        REDIS_URL: 'redis://localhost:6379',
         APP_ENV: 'prod',
         IMAGGA_SECRET_ID: 'image-analyzer/imagga',
       });

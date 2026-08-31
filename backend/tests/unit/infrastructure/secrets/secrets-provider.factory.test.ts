@@ -8,6 +8,7 @@ describe('createSecretsProvider', () => {
     const env = loadEnv({
       APP_ENV: 'local',
       ANNOTATOR: 'imagga',
+      REDIS_URL: 'redis://localhost:6379',
       IMAGGA_API_KEY: 'key',
       IMAGGA_API_SECRET: 'secret',
     });
@@ -19,6 +20,7 @@ describe('createSecretsProvider', () => {
     const env = loadEnv({
       APP_ENV: 'prod',
       ANNOTATOR: 'imagga',
+      REDIS_URL: 'redis://localhost:6379',
       IMAGGA_SECRET_ID: 'image-analyzer/imagga',
       AWS_REGION: 'us-east-1',
     });

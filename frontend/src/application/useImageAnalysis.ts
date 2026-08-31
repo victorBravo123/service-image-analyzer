@@ -13,7 +13,6 @@ export interface ImageAnalysisState {
   reset: () => void;
 }
 
-/** Explicit state machine for the analysis flow: idle → loading → success | error. */
 export function useImageAnalysis(): ImageAnalysisState {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [result, setResult] = useState<AnalysisResult | null>(null);

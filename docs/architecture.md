@@ -23,9 +23,9 @@ dominio importa Express, `fetch` ni ninguna librería externa.
 
 | Capa | Contenido | Regla |
 |---|---|---|
-| `domain` | `Tag`, `ImageAnalysis`, `AnnotatorCredentials`, `detectImageFormat`, puertos `ImageAnnotator` y `CredentialsProvider`, errores tipados | Cero dependencias externas; las invariantes viven en los constructores |
+| `domain` | `Tag`, `ImageAnalysis`, `AnnotatorCredentials`, `detectImageFormat`, puertos `ImageAnnotator`, `CredentialsProvider`, `CircuitBreakerStore` y `Logger`, errores tipados | Cero dependencias externas; las invariantes viven en los constructores |
 | `application` | `AnalyzeImageUseCase` | Orquesta: valida formato → llama al puerto → ordena el resultado |
-| `infrastructure` | `http/` (rutas, multer, error handler), `providers/` (Imagga, fake, factory), `config/` (env con Zod) y `config/secrets/` (adaptadores de `CredentialsProvider`) | Adaptadores que implementan o consumen los puertos |
+| `infrastructure` | `http/` (rutas, multer, error handler, logging de peticiones), `providers/` (Imagga, fake, factory), `resilience/` (circuit breaker y su store en Redis), `config/` (env con Zod, secretos y logger) | Adaptadores que implementan o consumen los puertos |
 | `main.ts` | Composition root | Único archivo que conoce todos los adaptadores concretos |
 
 ### Por qué así
@@ -42,6 +42,31 @@ empezó a agotar su tiempo de procesamiento del lado de ellos, la aplicación no
 se cayó — el adaptador tradujo el fallo a `AnalysisFailedError`, el error handler
 lo mapeó a `502`, el frontend mostró un mensaje comprensible, y se pudo seguir
 desarrollando con `ANNOTATOR=fake`.
+
+**El circuit breaker es un decorador, no una modificación.** `CircuitBreakerAnnotator`
+implementa `ImageAnnotator` y envuelve al adaptador real. Ni el caso de uso ni
+`ImaggaAnnotator` cambian una línea, y la protección sigue en pie el día que el
+proveedor sea otro. Probarlo no exige simular HTTP: basta un anotador que falle.
+
+Tres decisiones dentro del breaker:
+
+- **Abre a los tres fallos consecutivos** y responde `503` en milisegundos, en
+  vez de retener la conexión hasta el timeout del proveedor. Ese es el beneficio
+  real: liberar recursos, no devolver un error más bonito.
+- **No todo fallo cuenta.** Solo los que se arreglan esperando. Un timeout o un
+  `5xx` sí; una imagen inválida no —el usuario no debe poder abrir el circuito
+  para los demás— y unas credenciales rechazadas tampoco, porque esperar no
+  arregla una API key mal puesta y abrir el circuito escondería la causa.
+- **El estado vive en Redis** y lo comparten todas las instancias. Solo se usan
+  comandos atómicos: `INCR` para el contador y una clave con TTL cuya sola
+  existencia significa "abierto". Así Redis mide el tiempo y no hay relojes de
+  distintos contenedores que puedan discrepar.
+
+**El logger también es un puerto.** `Logger` vive en `domain/ports/` y `PinoLogger`
+es su único adaptador. La capa HTTP recibe el puerto, no un tipo de pino, así que
+cambiar de librería no la toca. Cada petición lleva un `IdTransaction` que
+correlaciona `start-request`, `end-request` y el `error` si lo hay. El cuerpo no
+se registra nunca: aquí es una imagen binaria.
 
 **La validación por magic bytes vive en el dominio.** Decidir "¿esto es una
 imagen?" es una regla de negocio, no un detalle de HTTP. Además, hacerlo antes de
@@ -140,7 +165,7 @@ memoria.
 
 ## Testing
 
-**94 tests** distribuidos según el valor que aportan, no para alcanzar un
+**114 tests** distribuidos según el valor que aportan, no para alcanzar un
 porcentaje:
 
 - **Dominio y aplicación (unitarios):** invariantes de `Tag`, ordenamiento de
@@ -160,6 +185,11 @@ porcentaje:
   campos y sella `datetime`), el middleware de request (un `IdTransaction` por
   petición, `responseTime` medido, healthchecks excluidos) y el logging de
   errores (5xx a `error`, 4xx a `warn`, correlacionado con su `start-request`).
+- **Resiliencia (unitarios + integración):** la máquina de estados del circuit
+  breaker con un doble del store, y el adaptador de Redis contra un Redis real
+  para lo que un doble no puede probar — que `INCR` mantiene el contador exacto
+  con 50 fallos concurrentes y que el estado se comparte entre instancias. Estos
+  últimos se saltan sin `REDIS_TEST_URL`.
 - **Frontend (Testing Library):** el flujo tal como lo vive el usuario — botón
   deshabilitado hasta seleccionar, spinner durante la petición, tags renderizados
   con su porcentaje, fallo del proveedor, backend inalcanzable y resultado vacío.
