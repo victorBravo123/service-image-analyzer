@@ -1,7 +1,8 @@
 import type { ErrorRequestHandler } from 'express';
 import { MulterError } from 'multer';
 import { DomainError } from '../../../domain/errors/domain.error';
-import type { Logger } from 'pino';
+import type { Logger } from '../../../domain/ports/logger';
+import '../dto/request-context';
 import type { ErrorResponseBody } from '../dto/error-response.dto';
 
 const STATUS_BY_DOMAIN_CODE: Record<string, number> = {
@@ -11,12 +12,25 @@ const STATUS_BY_DOMAIN_CODE: Record<string, number> = {
 };
 
 export function errorHandler(logger: Logger): ErrorRequestHandler {
-  return (error: unknown, _req, res, _next) => {
+  return (error: unknown, req, res, _next) => {
     const { status, body } = translate(error);
+    const entry = {
+      IdTransaction: req.idTransaction,
+      urlService: req.originalUrl,
+      action: 'error' as const,
+      event: `${req.method} ${req.originalUrl}`,
+      method: req.method,
+      responseTime: req.startTime === undefined ? 0 : Date.now() - req.startTime,
+      status,
+      code: body.error.code,
+      message: error instanceof Error ? error.message : body.error.message,
+    };
+
+    // 5xx is ours to fix and carries the real cause; 4xx is the caller's input.
     if (status >= 500) {
-      logger.error({ err: error }, 'request failed');
+      logger.error(entry);
     } else {
-      logger.warn({ code: body.error.code }, 'request rejected');
+      logger.warn(entry);
     }
     res.status(status).json(body);
   };

@@ -10,10 +10,6 @@ export interface ImageSelection {
   clear: () => void;
 }
 
-/**
- * Owns the selected file and its preview URL. The object URL is revoked on
- * every change and on unmount so repeated uploads do not leak memory.
- */
 export function useImageSelection(): ImageSelection {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);

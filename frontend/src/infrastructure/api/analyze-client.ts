@@ -31,10 +31,6 @@ const KNOWN_CODES: ReadonlySet<string> = new Set([
   'SERVICE_UNAVAILABLE',
 ]);
 
-/**
- * Driven adapter towards the backend. The rest of the app only sees
- * AnalysisResult or a typed ApiError — never raw fetch/HTTP details.
- */
 export async function analyzeImage(file: File): Promise<AnalysisResult> {
   const body = new FormData();
   body.append('image', file);
