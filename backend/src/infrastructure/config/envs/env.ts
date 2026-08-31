@@ -1,10 +1,15 @@
 import { z } from 'zod';
+import { ConfigurationError } from '../configuration.error';
+import { LOCAL_CREDENTIAL_KEYS } from '../constants/config.constants';
 
 const envSchema = z
   .object({
     /** Where the process runs. Only "local" reads credentials from the environment. */
     APP_ENV: z.enum(['local', 'dev', 'qa', 'staging', 'prod']).default('local'),
     PORT: z.coerce.number().int().positive().default(3000),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
     MAX_IMAGE_MB: z.coerce.number().positive().default(5),
     ANNOTATOR: z.enum(['imagga', 'fake']).default('fake'),
     IMAGGA_BASE_URL: z.string().trim().url().default('https://api.imagga.com/v2'),
@@ -23,11 +28,12 @@ const envSchema = z
       return;
     }
     if (env.APP_ENV === 'local') {
-      if (!env.IMAGGA_API_KEY || !env.IMAGGA_API_SECRET) {
+      const missing = LOCAL_CREDENTIAL_KEYS.filter((key) => !env[key]);
+      if (missing.length > 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
-            'IMAGGA_API_KEY and IMAGGA_API_SECRET are required when ANNOTATOR=imagga and ' +
+            `missing ${missing.join(' and ')} — required when ANNOTATOR=imagga and ` +
             'APP_ENV=local. Use ANNOTATOR=fake to run without credentials.',
         });
       }
@@ -44,12 +50,18 @@ const envSchema = z
   });
 
 export type Env = z.infer<typeof envSchema>;
+export type LogLevel = Env['LOG_LEVEL'];
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const result = envSchema.safeParse(source);
   if (!result.success) {
-    const details = result.error.issues.map((issue) => issue.message).join('; ');
-    throw new Error(`Invalid environment configuration: ${details}`);
+    const details = result.error.issues
+      .map((issue) =>
+        issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message,
+      )
+      .join('; ');
+
+    throw new ConfigurationError(`Invalid environment configuration: ${details}`);
   }
   return result.data;
 }

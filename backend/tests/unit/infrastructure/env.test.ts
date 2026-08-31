@@ -1,4 +1,4 @@
-import { loadEnv, maxImageBytes } from '../../../src/infrastructure/config/env';
+import { loadEnv, maxImageBytes } from '../../../src/infrastructure/config/envs/env';
 
 describe('loadEnv', () => {
   it('applies safe defaults for an empty environment', () => {

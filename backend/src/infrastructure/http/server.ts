@@ -1,5 +1,5 @@
 import express from 'express';
-import { pinoHttp } from 'pino-http';
+import { requestLogger } from './middleware/request-logger';
 import { analyzeRouter } from './routes/analyze.route';
 import { errorHandler } from './middleware/error-handler';
 import type { ServerDependencies } from './dto/server-dependencies';
@@ -14,7 +14,7 @@ export function buildApp({
   const app = express();
 
   app.disable('x-powered-by');
-  app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
+  app.use(requestLogger(logger));
 
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'ok' });

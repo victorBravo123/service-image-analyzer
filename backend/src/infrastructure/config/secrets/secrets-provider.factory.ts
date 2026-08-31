@@ -1,4 +1,5 @@
-import type { Env } from '../env';
+import type { Env } from '../envs/env';
+import { ConfigurationError } from '../configuration.error';
 import type { CredentialsProvider } from '../../../domain/ports/credentials-provider';
 import { EnvSecretsProvider } from './env-secrets.provider';
 import { AwsSecretsManagerProvider } from './aws-secrets-manager.provider';
@@ -8,7 +9,7 @@ export function createSecretsProvider(env: Env): CredentialsProvider {
     return new EnvSecretsProvider(env);
   }
   if (!env.IMAGGA_SECRET_ID) {
-    throw new Error(`IMAGGA_SECRET_ID is required when APP_ENV=${env.APP_ENV}`);
+    throw new ConfigurationError(`IMAGGA_SECRET_ID is required when APP_ENV=${env.APP_ENV}`);
   }
   return new AwsSecretsManagerProvider({
     secretId: env.IMAGGA_SECRET_ID,

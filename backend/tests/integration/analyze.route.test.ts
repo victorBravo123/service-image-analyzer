@@ -1,11 +1,11 @@
 ﻿import request from 'supertest';
-import { pino } from 'pino';
 import { buildApp } from '../../src/infrastructure/http/server';
 import { AnalyzeImageUseCase } from '../../src/application/use-cases/analyze-image/analyze-image.use-case';
 import { Tag } from '../../src/domain/model/tag';
 import { AnalysisFailedError } from '../../src/domain/errors/analysis-failed.error';
 import { AnnotatorUnavailableError } from '../../src/domain/errors/annotator-unavailable.error';
 import type { ImageAnnotator } from '../../src/domain/ports/image-annotator';
+import type { Logger } from '../../src/domain/ports/logger';
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 const ONE_MB = 1024 * 1024;
@@ -18,11 +18,17 @@ function errorCode(body: unknown): string {
   return (body as ErrorEnvelope).error.code;
 }
 
+const silentLogger: Logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
 function appWith(annotator: ImageAnnotator, maxImageBytes = ONE_MB) {
   return buildApp({
     analyzeImage: new AnalyzeImageUseCase(annotator),
     maxImageBytes,
-    logger: pino({ enabled: false }),
+    logger: silentLogger,
   });
 }
 
@@ -88,7 +94,9 @@ describe('POST /api/analyze', () => {
       annotate: () => Promise.reject(new AnalysisFailedError('upstream timeout')),
     };
 
-    const response = await request(appWith(failing)).post('/api/analyze').attach('image', PNG, 'dog.png');
+    const response = await request(appWith(failing))
+      .post('/api/analyze')
+      .attach('image', PNG, 'dog.png');
 
     expect(response.status).toBe(502);
     expect(errorCode(response.body)).toBe('ANALYSIS_FAILED');
@@ -112,7 +120,9 @@ describe('POST /api/analyze', () => {
       annotate: () => Promise.reject(new Error('secret connection string leaked in message')),
     };
 
-    const response = await request(appWith(broken)).post('/api/analyze').attach('image', PNG, 'dog.png');
+    const response = await request(appWith(broken))
+      .post('/api/analyze')
+      .attach('image', PNG, 'dog.png');
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({

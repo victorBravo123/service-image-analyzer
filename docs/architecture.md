@@ -140,7 +140,7 @@ memoria.
 
 ## Testing
 
-**81 tests** distribuidos según el valor que aportan, no para alcanzar un
+**94 tests** distribuidos según el valor que aportan, no para alcanzar un
 porcentaje:
 
 - **Dominio y aplicación (unitarios):** invariantes de `Tag`, ordenamiento de
@@ -156,6 +156,10 @@ porcentaje:
   (qué exige `APP_ENV=local` frente a un entorno desplegado) y ambos adaptadores
   de `SecretsProvider`, incluyendo secreto inexistente, JSON inválido, forma
   incorrecta, error de AWS y que la lectura se cachea.
+- **Observabilidad (unitarios):** el adaptador de pino (que reenvía todos los
+  campos y sella `datetime`), el middleware de request (un `IdTransaction` por
+  petición, `responseTime` medido, healthchecks excluidos) y el logging de
+  errores (5xx a `error`, 4xx a `warn`, correlacionado con su `start-request`).
 - **Frontend (Testing Library):** el flujo tal como lo vive el usuario — botón
   deshabilitado hasta seleccionar, spinner durante la petición, tags renderizados
   con su porcentaje, fallo del proveedor, backend inalcanzable y resultado vacío.
