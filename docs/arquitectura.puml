@@ -1,23 +1,23 @@
 @startuml arquitectura-analizador-imagenes
-title ARQUITECTURA - ANALIZADOR INTELIGENTE DE CONTENIDO DE IMÁGENES
+title ARQUITECTURA - ANALIZADOR INTELIGENTE DE CONTENIDO DE IMAGENES
 
-' Styling settings
 skinparam BackgroundColor #FFFFFF
 skinparam ArrowColor #455A64
 skinparam RoundCorner 8
 skinparam DefaultFontName "Segoe UI"
 skinparam DefaultFontSize 12
+skinparam ArrowFontSize 11
+skinparam Shadowing false
 
-' Color palette for nodes
 skinparam rectangle {
     BackgroundColor #F8F9FA
     BorderColor #B0BEC5
     FontColor #212121
 }
 
-skinparam interface {
-    BackgroundColor #F3E5F5
-    BorderColor #8E24AA
+skinparam database {
+    BackgroundColor #FFF3E0
+    BorderColor #FF9800
     FontColor #212121
 }
 
@@ -33,57 +33,45 @@ skinparam actor {
     FontColor #212121
 }
 
-' Definition of nodes
-actor "Usuario" as actor_usuario
+actor "Usuario" as usuario
 
-' Frontend
 rectangle "Frontend\n(React + Vite)" as frontend
 rectangle "nginx / dev-server\n(proxy /api)" as proxy
-
-' Backend - entrada HTTP
 rectangle "API Express\nPOST /api/analyze" as api
-rectangle "Multer\n(memoria, máx. 5 MB)" as multer
-rectangle "Error Handler\n(error -> HTTP)" as error_handler
+rectangle "AnalyzeImageUseCase\n(valida que sea imagen)" as use_case
+rectangle "Circuit Breaker" as breaker #E0F2F1
+rectangle "503\nSERVICE_UNAVAILABLE" as rechazo #FFEBEE
+rectangle "ImaggaAnnotator" as imagga
 
-' Backend - nucleo
-rectangle "main.ts\n(composition root)" as main
-rectangle "AnalyzeImageUseCase" as use_case
-rectangle "Dominio\n(magic bytes, Tag,\nImageAnalysis)" as dominio
-
-' Puerto de IA y sus adaptadores
-interface "ImageAnnotator\n(puerto)" as port_annotator
-rectangle "ImaggaAnnotator" as adapter_imagga
-rectangle "FakeAnnotator\n(modo demo)" as adapter_fake
+database "Redis\n(estado del circuito)" as redis
 cloud "Imagga\n(Externo)" as imagga_ext
+cloud "AWS Secrets Manager\n(Externo)" as aws
 
-' Puerto de credenciales y sus adaptadores
-interface "CredentialsProvider\n(puerto)" as port_creds
-rectangle "EnvSecretsProvider\n(APP_ENV=local)" as adapter_env
-rectangle "AwsSecretsManagerProvider\n(otros entornos)" as adapter_aws
-cloud "AWS Secrets Manager\n(Externo)" as aws_ext
-
-' Connections
-actor_usuario --> frontend
+usuario --> frontend : sube una imagen
 frontend --> proxy : multipart/form-data
 proxy --> api
+api --> use_case
+use_case --> breaker : annotate()
 
-api --> multer : recibe el archivo
-multer --> use_case : execute({ content })
-api --> error_handler : errores -> 400/413/415/502/503
+breaker --> redis : 1. consulta el estado
+breaker --> rechazo : ABIERTO: corta sin\nllamar al proveedor
+breaker --> imagga : CERRADO: delega
+imagga --> imagga_ext : HTTPS (Basic auth)
+breaker --> redis : 2. registra el resultado\nexito: borra el contador\nfallo: +1 y al tercero abre 60s
 
-use_case --> dominio : valida formato y ordena tags
-use_case --> port_annotator : annotate()
+api ..> aws : credenciales al arrancar
 
-' Adaptadores del puerto de IA
-port_annotator <|.. adapter_imagga
-port_annotator <|.. adapter_fake
-adapter_imagga --> imagga_ext : HTTPS (Basic auth)
+note bottom of redis
+  circuit:imagga:failures   contador
+  circuit:imagga:open       clave con TTL 60s
+  Su sola existencia significa "abierto",
+  asi que Redis mide el tiempo por si solo.
+end note
 
-' Composition root: cablea adaptadores y resuelve credenciales al arrancar
-main --> port_annotator : selecciona adaptador (ANNOTATOR)
-main --> port_creds : resuelve credenciales al arrancar
-port_creds <|.. adapter_env
-port_creds <|.. adapter_aws
-adapter_aws --> aws_ext : GetSecretValue
+note right of breaker
+  Solo cuentan los fallos que se
+  arreglan esperando: timeout y 5xx si;
+  imagen invalida o API key mala no.
+end note
 
 @enduml

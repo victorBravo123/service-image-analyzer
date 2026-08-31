@@ -1,6 +1,7 @@
 import { ImaggaAnnotator } from '../../../src/infrastructure/providers/imagga.annotator';
 import { AnalysisFailedError } from '../../../src/domain/errors/analysis-failed.error';
 import { AnnotatorUnavailableError } from '../../../src/domain/errors/annotator-unavailable.error';
+import { AnnotatorMisconfiguredError } from '../../../src/domain/errors/annotator-misconfigured.error';
 import type { ImageToAnnotate } from '../../../src/domain/ports/image-annotator';
 
 const IMAGE: ImageToAnnotate = {
@@ -16,7 +17,7 @@ const CONFIG = {
 };
 
 function imaggaJson(tags: Array<{ confidence?: number; tag?: { en?: string } }>): Response {
-  return new Response(JSON.stringify({ result: { tags } }), {
+  return new Response(JSON.stringify({ status: { type: 'success', text: '' }, result: { tags } }), {
     status: 200,
     headers: { 'content-type': 'application/json' },
   });
@@ -93,10 +94,22 @@ describe('ImaggaAnnotator', () => {
   });
 
   it('translates other upstream errors into AnalysisFailedError', async () => {
-    fetchSpy.mockResolvedValue(new Response('bad credentials', { status: 401 }));
+    fetchSpy.mockResolvedValue(new Response('boom', { status: 500 }));
 
     await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
   });
+
+  it.each([401, 403])(
+    'translates HTTP %s into AnnotatorMisconfiguredError naming the credentials',
+    async (status) => {
+      fetchSpy.mockResolvedValue(new Response('bad credentials', { status }));
+
+      await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(
+        AnnotatorMisconfiguredError,
+      );
+      await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(/IMAGGA_API_KEY/);
+    },
+  );
 
   it('translates a timeout into AnalysisFailedError mentioning the deadline', async () => {
     const timeout = new Error('aborted');
@@ -108,6 +121,50 @@ describe('ImaggaAnnotator', () => {
 
   it('translates a network failure into AnalysisFailedError', async () => {
     fetchSpy.mockRejectedValue(new TypeError('fetch failed'));
+
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
+  });
+  it('fails when the provider reports an error inside a 200 response', async () => {
+    // A Response body can only be read once, so each call needs a fresh one.
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            result: {},
+            status: { type: 'error', text: 'Failed to analyze image' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(
+      /Failed to analyze image/,
+    );
+  });
+
+  it('fails when the payload does not have the shape the provider promises', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({ status: { type: 'success' }, result: { tags: 'not an array' } }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
+  });
+
+  it('fails when the body is not JSON at all', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response('<html>Bad Gateway</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
 
     await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
   });

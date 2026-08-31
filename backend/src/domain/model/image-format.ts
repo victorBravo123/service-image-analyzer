@@ -2,12 +2,6 @@ export const SUPPORTED_IMAGE_FORMATS = ['jpeg', 'png', 'webp', 'gif'] as const;
 
 export type ImageFormat = (typeof SUPPORTED_IMAGE_FORMATS)[number];
 
-/**
- * Detects the real image format by inspecting the file's magic bytes.
- * Extension and client-declared mime type are never trusted: a .jpg that is
- * actually an executable must be rejected, which matters in any system that
- * accepts user uploads — and especially in a payments company.
- */
 export function detectImageFormat(content: Buffer): ImageFormat | null {
   if (startsWith(content, [0xff, 0xd8, 0xff])) {
     return 'jpeg';
