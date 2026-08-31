@@ -165,7 +165,7 @@ memoria.
 
 ## Testing
 
-**114 tests** distribuidos según el valor que aportan, no para alcanzar un
+**117 tests** distribuidos según el valor que aportan, no para alcanzar un
 porcentaje:
 
 - **Dominio y aplicación (unitarios):** invariantes de `Tag`, ordenamiento de

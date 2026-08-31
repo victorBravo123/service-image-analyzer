@@ -17,7 +17,7 @@ const CONFIG = {
 };
 
 function imaggaJson(tags: Array<{ confidence?: number; tag?: { en?: string } }>): Response {
-  return new Response(JSON.stringify({ result: { tags } }), {
+  return new Response(JSON.stringify({ status: { type: 'success', text: '' }, result: { tags } }), {
     status: 200,
     headers: { 'content-type': 'application/json' },
   });
@@ -121,6 +121,50 @@ describe('ImaggaAnnotator', () => {
 
   it('translates a network failure into AnalysisFailedError', async () => {
     fetchSpy.mockRejectedValue(new TypeError('fetch failed'));
+
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
+  });
+  it('fails when the provider reports an error inside a 200 response', async () => {
+    // A Response body can only be read once, so each call needs a fresh one.
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            result: {},
+            status: { type: 'error', text: 'Failed to analyze image' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(
+      /Failed to analyze image/,
+    );
+  });
+
+  it('fails when the payload does not have the shape the provider promises', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({ status: { type: 'success' }, result: { tags: 'not an array' } }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+
+    await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
+  });
+
+  it('fails when the body is not JSON at all', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response('<html>Bad Gateway</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
 
     await expect(new ImaggaAnnotator(CONFIG).annotate(IMAGE)).rejects.toThrow(AnalysisFailedError);
   });

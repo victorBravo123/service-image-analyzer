@@ -18,7 +18,7 @@ por confianza → la interfaz las muestra con barras de confianza.
 | Frontend | React 18 · Vite 6 · TypeScript 5 |
 | IA | [Imagga](https://imagga.com/) — adaptador intercambiable, con modo demo sin credenciales |
 | Secretos | AWS Secrets Manager fuera de desarrollo local |
-| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **114 tests** |
+| Testing | Jest + Supertest (backend) · Vitest + Testing Library (frontend) — **117 tests** |
 | Resiliencia | Circuit breaker con estado compartido en Redis |
 | Infraestructura | Docker multi-stage · docker-compose · nginx · Redis |
 
@@ -182,7 +182,7 @@ Healthcheck: `{ "status": "ok" }`.
 ## Tests
 
 ```bash
-cd backend  && npm test    # 105 tests (6 requieren Redis, se saltan sin él)
+cd backend  && npm test    # 108 tests (6 requieren Redis, se saltan sin él)
 cd frontend && npm test    #  9 tests: componentes con Testing Library
 ```
 
