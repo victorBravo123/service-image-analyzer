@@ -1,18 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 import type { Logger } from '../../../domain/ports/logger';
 import '../dto/request-context';
 
-/** Health checks would drown the useful signal, so they are not logged. */
 const UNLOGGED_PATHS: ReadonlySet<string> = new Set(['/api/health']);
 
-/**
- * Emits one `start-request` entry when a request arrives and one `end-request`
- * entry when the response is flushed, both carrying the same IdTransaction.
- *
- * The request body is deliberately never logged: on this API it is a binary
- * image, so it is both useless as text and large enough to hurt.
- */
 export function requestLogger(logger: Logger): RequestHandler {
   return (req, res, next) => {
     const urlService = req.originalUrl;
@@ -37,7 +29,7 @@ export function requestLogger(logger: Logger): RequestHandler {
       responseTime: 0,
       status: 'ok',
       code: '0',
-      message: describeRequest(req.query),
+      message: describeRequest(req),
     });
 
     res.on('finish', () => {
@@ -58,7 +50,29 @@ export function requestLogger(logger: Logger): RequestHandler {
   };
 }
 
-function describeRequest(query: unknown): string {
-  const hasQuery = typeof query === 'object' && query !== null && Object.keys(query).length > 0;
-  return hasQuery ? `Query: ${JSON.stringify(query)}` : 'No request data';
+function describeRequest(req: Request): string {
+  const parts: string[] = [];
+
+  if (Object.keys(req.query).length > 0) {
+    parts.push(`Query: ${JSON.stringify(req.query)}`);
+  }
+
+  const contentType = req.headers['content-type']?.split(';')[0];
+  const contentLength = Number(req.headers['content-length'] ?? 0);
+  if (contentLength > 0) {
+    const size = formatBytes(contentLength);
+    parts.push(contentType ? `Payload: ${size} (${contentType})` : `Payload: ${size}`);
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : 'No request data';
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${String(bytes)} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }

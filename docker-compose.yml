@@ -1,4 +1,13 @@
 services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   backend:
     build: ./backend
     environment:
@@ -13,8 +22,16 @@ services:
       IMAGGA_API_SECRET: ${IMAGGA_API_SECRET:-}
       IMAGGA_SECRET_ID: ${IMAGGA_SECRET_ID:-}
       AWS_REGION: ${AWS_REGION:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_USERNAME: ${REDIS_USERNAME:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CB_FAILURE_THRESHOLD: ${CB_FAILURE_THRESHOLD:-3}
+      CB_OPEN_MS: ${CB_OPEN_MS:-60000}
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -22,7 +39,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - '8080:80'
+      - "8080:80"
     depends_on:
       backend:
         condition: service_healthy

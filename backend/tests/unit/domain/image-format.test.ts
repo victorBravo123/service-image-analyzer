@@ -1,4 +1,5 @@
-import { detectImageFormat } from '../../../src/domain/model/image-format';
+import { UnsupportedImageFormatError } from '../../../src/domain/errors/unsupported-image-format.error';
+import { detectImageFormat, SUPPORTED_IMAGE_FORMATS } from '../../../src/domain/model/image-format';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
@@ -38,5 +39,15 @@ describe('detectImageFormat', () => {
       Buffer.from('WAVE', 'ascii'),
     ]);
     expect(detectImageFormat(wav)).toBeNull();
+  });
+});
+
+describe('UnsupportedImageFormatError', () => {
+  it('names every supported format, so the message cannot drift from the list', () => {
+    const message = new UnsupportedImageFormatError().message;
+
+    for (const format of SUPPORTED_IMAGE_FORMATS) {
+      expect(message).toContain(format);
+    }
   });
 });

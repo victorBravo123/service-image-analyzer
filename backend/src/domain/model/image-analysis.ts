@@ -1,9 +1,5 @@
 import type { Tag } from './tag';
 
-/**
- * Result of analyzing one image: its tags ordered by descending confidence,
- * so every consumer (HTTP, logs, future persistence) sees the same ranking.
- */
 export class ImageAnalysis {
   private constructor(readonly tags: readonly Tag[]) {}
 

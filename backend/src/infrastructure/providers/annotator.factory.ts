@@ -1,28 +1,29 @@
 import type { Env } from '../config/envs/env';
+import type { CircuitBreakerStore } from '../../domain/ports/circuit-breaker.store';
 import type { CredentialsProvider } from '../../domain/ports/credentials-provider';
 import type { ImageAnnotator } from '../../domain/ports/image-annotator';
+import type { Logger } from '../../domain/ports/logger';
+import { CircuitBreakerAnnotator } from '../resilience/circuit-breaker.annotator';
 import { FakeAnnotator } from './fake.annotator';
 import { ImaggaAnnotator } from './imagga.annotator';
 
-/**
- * `credentials` is a factory, not a ready-made provider: building one can
- * itself demand configuration (a secret id outside local development), and the
- * demo annotator must stay usable in every environment without any of it. The
- * factory is only invoked on the branch that actually needs credentials.
- */
 export async function createAnnotator(
   env: Env,
   credentials: () => CredentialsProvider,
+  circuit: () => CircuitBreakerStore,
+  logger: Logger,
 ): Promise<ImageAnnotator> {
   if (env.ANNOTATOR !== 'imagga') {
     return new FakeAnnotator();
   }
 
   const { apiKey, apiSecret } = await credentials().getAnnotatorCredentials();
-  return new ImaggaAnnotator({
+  const imagga = new ImaggaAnnotator({
     apiKey,
     apiSecret,
     baseUrl: env.IMAGGA_BASE_URL,
     timeoutMs: env.IMAGGA_TIMEOUT_MS,
   });
+
+  return new CircuitBreakerAnnotator(imagga, circuit(), logger);
 }

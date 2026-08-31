@@ -39,6 +39,8 @@ participant "«nginx / Vite»\nProxy /api" as Proxy << (P,#FF9800) >> #FFF3E0
 participant "«Express»\nAPI /api/analyze" as API << (E,#43A047) >> #E8F5E9
 participant "«Application»\nAnalyzeImageUseCase" as UseCase << (A,#3F51B5) >> #E8EAF6
 participant "«Domain»\ndetectImageFormat" as Dominio << (D,#7CB342) >> #F1F8E9
+participant "«Resilience»\nCircuitBreaker" as Breaker << (C,#00897B) >> #E0F2F1
+database "«Redis»\nEstado del circuito" as Redis << (R,#D32F2F) >> #FFEBEE
 participant "«Adapter»\nImaggaAnnotator" as Annotator << (A,#9C27B0) >> #F3E5F5
 entity "«External»\nImagga" as Imagga << (E,#FF5722) >> #FBE9E7
 
@@ -69,27 +71,67 @@ alt No es una imagen (magic bytes)
     UseCase --> API : UnsupportedImageFormatError
     API --> Proxy : 415 UNSUPPORTED_MEDIA_TYPE
 else Formato soportado
-    == Análisis con el proveedor de IA ==
-    UseCase -> Annotator : annotate({ content, format })
-    activate Annotator
-    Annotator -> Imagga : POST /v2/tags\nBasic auth, timeout 30s
-    activate Imagga
+    == Circuit breaker ==
 
-    alt Respuesta correcta
-        Imagga --> Annotator : tags con confidence 0-100
-        deactivate Imagga
-        Annotator --> UseCase : Tag[] normalizados a [0,1]
-        deactivate Annotator
-        UseCase -> UseCase : Ordena por confianza desc.
-        UseCase --> API : ImageAnalysis
-        API --> Proxy : 200 { tags: [...] }
-    else Rate limit del proveedor
-        Annotator --> API : AnnotatorUnavailableError
+    UseCase -> Breaker : annotate({ content, format })
+    activate Breaker
+    Breaker -> Redis : EXISTS circuit:imagga:open
+    activate Redis
+    Redis --> Breaker : 0 cerrado | 1 abierto
+    deactivate Redis
+
+    alt Circuito abierto
+        Breaker --> API : AnnotatorUnavailableError
         API --> Proxy : 503 SERVICE_UNAVAILABLE
-    else Error o timeout
-        Annotator --> API : AnalysisFailedError
-        API --> Proxy : 502 ANALYSIS_FAILED
+        note right of Breaker
+          Responde en milisegundos
+          sin llamar al proveedor.
+        end note
+
+    else Circuito cerrado
+        == Análisis con el proveedor de IA ==
+
+        Breaker -> Annotator : annotate({ content, format })
+        activate Annotator
+        Annotator -> Imagga : POST /v2/tags\nBasic auth, timeout 30s
+        activate Imagga
+
+        alt Respuesta correcta
+            Imagga --> Annotator : tags con confidence 0-100
+            deactivate Imagga
+            Annotator --> Breaker : Tag[] normalizados a [0,1]
+            deactivate Annotator
+            Breaker -> Redis : DEL failures, open
+            Breaker --> UseCase : Tag[]
+            UseCase -> UseCase : Ordena por confianza desc.
+            UseCase --> API : ImageAnalysis
+            API --> Proxy : 200 { tags: [...] }
+
+        else Fallo del proveedor (timeout, 5xx, rate limit)
+            Annotator --> Breaker : AnalysisFailedError
+            Breaker -> Redis : INCR circuit:imagga:failures
+            activate Redis
+            Redis --> Breaker : contador
+            deactivate Redis
+            note right of Breaker
+              Al tercer fallo: SET open PX 60000.
+              Redis expira la clave por si solo.
+            end note
+            Breaker --> API : el error original
+            API --> Proxy : 502 / 503
+
+        else Credenciales rechazadas (401 / 403)
+            Annotator --> Breaker : AnnotatorMisconfiguredError
+            note right of Breaker
+              No cuenta como fallo del proveedor:
+              esperar no arregla una API key mala.
+            end note
+            Breaker --> API : el error original
+            API --> Proxy : 502 ANALYSIS_FAILED
+        end
+        deactivate Annotator
     end
+    deactivate Breaker
 end
 deactivate UseCase
 deactivate API
